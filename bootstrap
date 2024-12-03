@@ -1,0 +1,99 @@
+#!/bin/sh
+
+set -euo pipefail
+
+log_initialization_error() {
+    local error_type="$1"
+    local error_message="$2"
+    curl -sS -X POST "http://${AWS_LAMBDA_RUNTIME_API}/2018-06-01/runtime/init/error" \
+         -H "Lambda-Runtime-Function-Error-Type: ${error_type}" \
+         -d "${error_message}"
+}
+
+log_invocation_error() {
+    local error_type="$1"
+    local error_message="$2"
+    curl -sS -X POST "http://${AWS_LAMBDA_RUNTIME_API}/2018-06-01/runtime/invocation/$REQUEST_ID/error" \
+         -H "Lambda-Runtime-Function-Error-Type: ${error_type}" \
+         -d "${error_message}"
+}
+
+log_runtime_info() {
+    local message="$1"
+    echo "$message" >&2
+}
+
+log_runtime_error() {
+    local error_type="$1"
+    local error_message="$2"
+    echo "$error_message" >&2
+}
+
+# Initialization - load function handler
+HANDLER_FILE=$(echo "$_HANDLER" | cut -d. -f1)
+
+# Check if handler file exists
+if [ ! -f "$LAMBDA_TASK_ROOT/$HANDLER_FILE.lua" ]; then
+    log_initialization_error "Runtime.HandlerNotFound" "Handler file $HANDLER_FILE.lua not found"
+    exit 1
+fi
+
+# Processing loop
+while true
+do
+    HEADERS=$(mktemp)
+    EVENT_DATA=$(curl -sS -LD "$HEADERS" "http://${AWS_LAMBDA_RUNTIME_API}/2018-06-01/runtime/invocation/next")
+    REQUEST_ID=$(grep -Fi Lambda-Runtime-Aws-Request-Id "$HEADERS" | tr -d '\r' | awk -F: '{print $2}' | xargs)
+    TRACE_ID=$(grep -Fi Lambda-Runtime-Trace-Id "$HEADERS" | tr -d '\r' | awk -F: '{print $2}' | xargs)
+
+    export _X_AMZN_TRACE_ID="${TRACE_ID}"
+
+    # Create named pipes for stdout and stderr
+    STDOUT_PIPE=$(mktemp -u)
+    STDERR_PIPE=$(mktemp -u)
+    mkfifo "$STDOUT_PIPE"
+    mkfifo "$STDERR_PIPE"
+
+    RESPONSE=""
+
+    # Start luajit, redirecting stdout and stderr to the respective pipes
+    luajit "$LAMBDA_TASK_ROOT/$HANDLER_FILE.lua" > "$STDOUT_PIPE" 2> "$STDERR_PIPE" &
+    LUAPID=$!
+
+    # Read from stdout
+    {
+        while IFS= read -r line; do
+            RESPONSE="${RESPONSE}${line}\n"
+            log_runtime_info "$line"
+        done < "$STDOUT_PIPE"
+    } &
+
+    # Read from stderr
+    {
+        while IFS= read -r line; do
+            log_runtime_error "Handler.ExecutionError" "$line"
+        done < "$STDERR_PIPE"
+    } &
+
+    # Wait for luajit to finish
+    wait $LUAPID
+    EXIT_CODE=$?
+
+    # Wait for background jobs to finish reading output
+    wait
+
+    # Remove the named pipes
+    rm "$STDOUT_PIPE" "$STDERR_PIPE"
+
+    # Handle potential errors during function execution
+    if [ $EXIT_CODE -ne 0 ]; then
+        log_invocation_error "Handler.ExecutionError" "{\"errorMessage\" : \"$RESPONSE\", \"errorType\" : \"Handler.ExecutionError\"}"
+    else
+        # Send successful response
+        curl -sS -X POST "http://${AWS_LAMBDA_RUNTIME_API}/2018-06-01/runtime/invocation/$REQUEST_ID/response" \
+             -d "$RESPONSE"
+    fi
+
+    # Clean up temporary headers file
+    rm -f "$HEADERS"
+done
