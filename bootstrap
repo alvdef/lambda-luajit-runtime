@@ -57,7 +57,7 @@ do
     RESPONSE=""
 
     # Start luajit, redirecting stdout and stderr to the respective pipes
-    luajit "$LAMBDA_TASK_ROOT/$HANDLER_FILE.lua" > "$STDOUT_PIPE" 2> "$STDERR_PIPE" &
+    luajit "$LAMBDA_TASK_ROOT/$HANDLER_FILE.lua" "$EVENT_DATA" > "$STDOUT_PIPE" 2> "$STDERR_PIPE" &
     LUAPID=$!
 
     # Read from stdout

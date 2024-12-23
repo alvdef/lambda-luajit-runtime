@@ -1,28 +1,37 @@
+local json = require("cjson")
+
 math.randomseed(os.time())
 
-function montecarloPi()
+function montecarloPi(iterations)
     local insideCircle = 0
-    local totalPoints = 0
-    local startTime = os.time()
-    local duration = 1 * 60
+    local totalPoints = iterations or 1000000
 
-    print("Iniciando cálculo de Montecarlo para estimar Pi durante 1 minutos...")
-
-    while os.time() - startTime < duration do
+    for i = 1, totalPoints do
         local x = math.random()
         local y = math.random()
 
         if x * x + y * y <= 1 then
             insideCircle = insideCircle + 1
         end
-
-        totalPoints = totalPoints + 1
     end
 
     local estimatedPi = 4 * (insideCircle / totalPoints)
     return estimatedPi, totalPoints
 end
 
-local estimatedPi, totalPoints = montecarloPi()
-print(string.format("Estimación de Pi: %.6f", estimatedPi))
-print(string.format("Total de puntos generados: %d", totalPoints))
+-- Get event data from command line argument
+local eventData = json.decode(arg[1])
+
+-- Use iterations from event data if provided, otherwise use default
+local iterations = eventData.iterations or nil
+local estimatedPi, totalPoints = montecarloPi(iterations)
+
+-- Prepare response
+local response = {
+    estimatedPi = estimatedPi,
+    totalPoints = totalPoints,
+    input = eventData
+}
+
+-- Print response as JSON
+print(json.encode(response))
