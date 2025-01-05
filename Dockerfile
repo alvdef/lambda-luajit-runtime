@@ -5,6 +5,9 @@ FROM public.ecr.aws/lambda/provided:al2
 RUN yum update -y && \
     yum install -y \
     gcc \
+    wget \
+    unzip \
+    tar \
     make \
     git
 
@@ -16,12 +19,22 @@ RUN git clone https://luajit.org/git/luajit.git \
     && make install PREFIX=/usr/local
 
 # Set up LuaJIT environment variables
-ENV LUA_PATH="/usr/local/share/luajit-2.1/?.lua;./?.lua"
+ENV LUA_PATH="/usr/local/share/luajit-2.1/?.lua;./?.lua;/usr/local/share/lua/5.1/?.lua;/usr/local/share/lua/5.1/?/init.lua"
 ENV LUA_CPATH="/usr/local/lib/lua/5.1/?.so;./?.so"
 ENV LUAJIT_LIB=/usr/local/lib
 ENV LUAJIT_INC=/usr/local/include/luajit-2.1
 
-# Install Lua CJSON
+
+# Install LuaRocks for package management
+WORKDIR /tmp
+RUN wget https://luarocks.org/releases/luarocks-3.9.2.tar.gz \
+    && tar zxpf luarocks-3.9.2.tar.gz \
+    && cd luarocks-3.9.2 \
+    && ./configure --with-lua-include=/usr/local/include/luajit-2.1 \
+    && make \
+    && make install
+
+# Install Lua CJSON (example of manual installation)
 WORKDIR /tmp
 RUN git clone https://github.com/openresty/lua-cjson.git \
     && cd lua-cjson \
@@ -40,6 +53,14 @@ RUN chmod +x /var/runtime/bootstrap
 COPY handler.lua ${LAMBDA_TASK_ROOT}/
 
 ENV ENTRYPOINT="/var/runtime/bootstrap"
+
+RUN yum remove -y \
+    wget \
+    tar \
+    git \
+    && yum clean all \
+    && rm -rf /var/cache/yum
+
 
 # Label the image
 LABEL maintainer="Álvaro de Francisco <alvdef@gmail.com>"

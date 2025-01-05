@@ -66,14 +66,18 @@ Use the AWS Console or AWS CLI to create a new Lambda function using the pushed 
 Your `handler.lua` must process the event data passed by the Lambda runtime. The runtime provides the event as a JSON string in the first command line argument (`arg[1]`). See the included `handler.lua` for a complete example that demonstrates:
 
 ```lua
--- Event data is available in arg[1]
-local event = arg[1] or "{}"
+local json = require("cjson")
 
 -- Parse JSON event data
-local event_data = cjson.decode(event)
+local event_data = cjson.decode(arg[1])
+
+-- ...
 
 -- Process and return JSON response
-local response = { statusCode = 200, body = "Hello" }
+local response = { 
+    statusCode = 200, 
+    body = "Hello" 
+}
 print(cjson.encode(response))
 ```
 
